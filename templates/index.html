@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Google Drive Files - Play AWB</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0 20px;
+    }
+
+    table thead th {
+      position: sticky;
+      top: 0;
+      background: #f3f3f3;
+      z-index: 10;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+
+    button { padding: 6px 10px; cursor: pointer; }
+
+    .played-row {
+      background: #c0ffc0 !important;
+    }
+
+    .top-bar {
+      margin-top: 15px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .pagination {
+      display: flex;
+      gap: 8px;
+    }
+
+    .pagination button {
+      padding: 4px 10px;
+    }
+
+    .active-page {
+      background: #4CAF50;
+      color: white;
+      font-weight: bold;
+    }
+
+    .btn-green { background: green; color: white; }
+    .btn-red { background: red; color: white; }
+    .btn-gray { background: #ccc; color: black; }
+    .btn-orange { background: orange; color: black; }
+  </style>
+</head>
+<body>
+
+  <h2>Google Drive Files</h2>
+
+  <div class="top-bar">
+    <button id="clear-btn">Clear All Played Records</button>
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>File Name</th>
+        <th>Type</th>
+        <th>Size</th>
+        <th>Recorded Time</th>
+        <th>Timestamp</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="files-table"></tbody>
+  </table>
+
+<script>
+let currentPage = 1;
+let pageSize = 100;
+let totalFiles = 0;
+
+/* Local Storage for Played / Converted Files */
+function getPlayedFiles() {
+  return JSON.parse(localStorage.getItem("played_files") || "[]");
+}
+function addPlayedFile(fileId) {
+  const arr = getPlayedFiles();
+  if (!arr.includes(fileId)) arr.push(fileId);
+  localStorage.setItem("played_files", JSON.stringify(arr));
+}
+function clearPlayedFiles() {
+  localStorage.removeItem("played_files");
+  document.querySelectorAll("tr").forEach(tr => tr.classList.remove("played-row"));
+}
+
+/* Pagination */
+function renderPagination() {
+  const pages = Math.ceil(totalFiles / pageSize);
+  const wrapper = document.getElementById("pagination");
+  wrapper.innerHTML = "";
+
+  for (let p = 1; p <= pages; p++) {
+    const btn = document.createElement("button");
+    btn.textContent = p;
+    if (p === currentPage) btn.classList.add("active-page");
+    btn.onclick = () => {
+      currentPage = p;
+      loadFiles();
+    };
+    wrapper.appendChild(btn);
+  }
+}
+
+/* Extract Timestamp from Filename */
+function extractTimestamp(filename){
+  // Extract first 10 digits
+  const match = filename.match(/\d{10}/);
+  if (!match) return "—";
+  const str = match[0];
+
+  // Assume format: DDMMYYHHMM
+  const day = parseInt(str.slice(0,2));
+  const month = parseInt(str.slice(2,4)) - 1; // JS months 0-indexed
+  const year = 2000 + parseInt(str.slice(4,6));
+  const hour24 = parseInt(str.slice(6,8));
+  const minute = parseInt(str.slice(8,10));
+
+  const date = new Date(year, month, day, hour24, minute);
+  if (isNaN(date)) return "Invalid";
+
+  // Convert to 12-hour format
+  let hour = date.getHours();
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+
+  const hh = String(hour).padStart(2,'0');
+  const mm = String(date.getMinutes()).padStart(2,'0');
+  const dd = String(day).padStart(2,'0');
+  const MM = String(month+1).padStart(2,'0');
+  const yyyy = year;
+
+  return `${hh}:${mm} ${ampm} ${dd}-${MM}-${yyyy}`;
+}
+
+
+/* Fetch Files */
+async function loadFiles() {
+  const res = await fetch(`/api/files?page=${currentPage}`);
+  const data = await res.json();
+
+  const table = document.getElementById("files-table");
+  table.innerHTML = "";
+
+  totalFiles = data.total || 0;
+  renderPagination();
+
+  const played = getPlayedFiles();
+
+  data.files.forEach(file => {
+    const tr = document.createElement("tr");
+
+    const isConverted = played.includes(file.id);
+    if (isConverted) tr.classList.add("played-row");
+
+    const sizeText = file.size ? formatBytes(Number(file.size)) : "—";
+    const created = file.createdTime ? new Date(file.createdTime).toLocaleString() : "—";
+    const timestamp = extractTimestamp(file.name);
+
+    const btnText = isConverted ? "Play" : "Load";
+    const btnClass = isConverted ? "btn-green" : "btn-gray";
+
+    const actionBtn = `<button class="action-btn ${btnClass}" data-fileid="${file.id}" data-converted="${isConverted ? 1 : 0}">${btnText}</button>`;
+
+    tr.innerHTML = `
+      <td>${escapeHtml(file.name)}</td>
+      <td>${escapeHtml(file.mimeType)}</td>
+      <td>${sizeText}</td>
+      <td>${created}</td>
+      <td>${timestamp}</td>
+      <td>${actionBtn}</td>
+    `;
+    table.appendChild(tr);
+  });
+
+  document.querySelectorAll(".action-btn").forEach(btn => {
+    btn.addEventListener("click", handleActionClick);
+  });
+}
+
+/* Helpers */
+function formatBytes(bytes){
+  if (bytes === 0) return '0 B';
+  const k = 1024, sizes = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function escapeHtml(text){
+  if(!text) return "";
+  return text.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* Handle Load / Play Logic */
+async function handleActionClick(e) {
+  const btn = e.currentTarget;
+  const fileId = btn.dataset.fileid;
+  const converted = btn.dataset.converted === "1";
+
+  if (!converted) {
+    // Start conversion
+    btn.textContent = "Converting...";
+    btn.className = "action-btn btn-orange";
+
+    try {
+      const resp = await fetch(`/api/convert?fileId=${encodeURIComponent(fileId)}`, { method: 'GET' });
+      if (!resp.ok) throw new Error("Conversion failed");
+
+      // Conversion successful
+      btn.dataset.converted = "1";
+      btn.textContent = "Play";
+      btn.className = "action-btn btn-green";
+
+      addPlayedFile(fileId); // store in localStorage
+      btn.closest("tr").classList.add("played-row");
+    } catch (err) {
+      btn.textContent = "Load";
+      btn.className = "action-btn btn-gray";
+      alert("Conversion failed. Try again.");
+    }
+  } else {
+    // Already converted → open in new tab
+    const url = `/api/convert?fileId=${encodeURIComponent(fileId)}`;
+    window.open(url, "_blank");
+  }
+}
+
+/* Clear Button */
+document.getElementById("clear-btn").addEventListener("click", () => {
+  clearPlayedFiles();
+  alert("All played records cleared!");
+});
+
+/* Init */
+loadFiles();
+</script>
+
+</body>
+</html>
