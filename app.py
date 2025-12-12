@@ -210,7 +210,7 @@ def start_cloudflare_tunnel(local_port: int):
     return cf_proc, public_url
 
 # ==========================
-# 7️⃣ Main: run Flask + Tunnel
+# 7️⃣ Main: run Flask + Tunnel (clean exit)
 # ==========================
 if __name__ == "__main__":
     LOCAL_PORT = 5000
@@ -235,9 +235,10 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n🔴 Stopping Flask + Cloudflare tunnel...")
+        print("\n🔴 Stopping Flask + Cloudflare tunnel gracefully...")
     finally:
         if cf_proc:
             cf_proc.terminate()
             cf_proc.wait()
             print("✅ Cloudflare tunnel stopped.")
+        print("✅ Flask app stopped.")
