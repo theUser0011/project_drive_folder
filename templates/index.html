@@ -43,11 +43,13 @@
       align-items: center;
     }
 
-    .pagination {
-      display: flex;
-      gap: 8px;
-      margin-top: 2%;
-    }
+.pagination {
+  display: flex;
+  flex-wrap: wrap;        /* 👈 allows multiple rows */
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
 
     .pagination button {
       padding: 4px 10px;
